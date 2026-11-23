@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ClipCut — Video Editor</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%237c5cff'/><path d='M12 9l12 7-12 7z' fill='white'/></svg>" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">▶</span> ClipCut</div>
+    <input id="projectName" class="project-name" value="Untitled project" spellcheck="false" />
+    <div class="tb-group">
+      <button id="undoBtn" class="icon-btn" title="Undo (Ctrl+Z)">↶</button>
+      <button id="redoBtn" class="icon-btn" title="Redo (Ctrl+Shift+Z)">↷</button>
+    </div>
+    <label class="tb-field">Aspect
+      <select id="aspectSelect">
+        <option value="16:9">16:9 Landscape</option>
+        <option value="9:16">9:16 Vertical</option>
+        <option value="1:1">1:1 Square</option>
+        <option value="4:5">4:5 Portrait</option>
+      </select>
+    </label>
+    <label class="tb-field">Preview
+      <select id="previewQuality">
+        <option value="0.5">Half</option>
+        <option value="1">Full</option>
+      </select>
+    </label>
+    <span id="saveStatus" class="save-status"></span>
+    <div class="spacer"></div>
+    <button id="shortcutsBtn" class="ghost-btn" title="Keyboard shortcuts">⌨ Shortcuts</button>
+    <button id="newProjectBtn" class="ghost-btn">New project</button>
+    <button id="exportBtn" class="primary-btn">⇪ Export</button>
+  </header>
+
+  <main class="workspace">
+    <aside class="sidebar">
+      <nav class="side-tabs">
+        <button data-tab="media" class="active"><span>▦</span>Media</button>
+        <button data-tab="music"><span>♫</span>Music</button>
+        <button data-tab="text"><span>T</span>Text</button>
+        <button data-tab="transitions"><span>⧉</span>Transitions</button>
+        <button data-tab="effects"><span>✦</span>Effects</button>
+      </nav>
+      <div class="side-panels">
+        <section class="side-panel active" data-panel="media"></section>
+        <section class="side-panel" data-panel="music"></section>
+        <section class="side-panel" data-panel="text"></section>
+        <section class="side-panel" data-panel="transitions"></section>
+        <section class="side-panel" data-panel="effects"></section>
+      </div>
+    </aside>
+
+    <section class="viewer">
+      <div class="stage" id="stage">
+        <canvas id="preview"></canvas>
+        <div class="stage-empty" id="stageEmpty">
+          <div class="big">Drop videos, images or audio here</div>
+          <div>or use <b>Media → Import</b> to get started</div>
+        </div>
+      </div>
+      <div class="transport">
+        <button class="icon-btn" id="toStartBtn" title="Go to start (Home)">⏮</button>
+        <button class="icon-btn" id="prevFrameBtn" title="Previous frame (←)">◀︎|</button>
+        <button class="play-btn" id="playBtn" title="Play / Pause (Space)">▶</button>
+        <button class="icon-btn" id="nextFrameBtn" title="Next frame (→)">|▶︎</button>
+        <button class="icon-btn" id="toEndBtn" title="Go to end (End)">⏭</button>
+        <div class="timecode"><span id="curTime">00:00.00</span> / <span id="totTime">00:00.00</span></div>
+        <div class="spacer"></div>
+        <label class="vol" title="Preview volume">🔊 <input type="range" id="masterVol" min="0" max="1" step="0.01" value="1" /></label>
+        <button class="icon-btn" id="fullscreenBtn" title="Fullscreen preview">⛶</button>
+      </div>
+    </section>
+
+    <aside class="inspector" id="inspector"></aside>
+  </main>
+
+  <section class="timeline" id="timeline"></section>
+
+  <div class="modal-backdrop hidden" id="modal"><div class="modal" id="modalBody"></div></div>
+  <div class="toasts" id="toasts"></div>
+  <input type="file" id="fileInput" multiple accept="video/*,audio/*,image/*" hidden />
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
