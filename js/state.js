@@ -1,0 +1,60 @@
+// Central project state, events and undo/redo history.
+
+export const TRACKS = [
+  { id: 'V2', kind: 'video', label: 'Overlay' },
+  { id: 'V1', kind: 'video', label: 'Main video' },
+  { id: 'T1', kind: 'text', label: 'Captions' },
+  { id: 'A1', kind: 'audio', label: 'Music' },
+  { id: 'A2', kind: 'audio', label: 'Audio 2' },
+];
+
+export const ASPECTS = {
+  '16:9': [1920, 1080],
+  '9:16': [1080, 1920],
+  '1:1': [1080, 1080],
+  '4:5': [1080, 1350],
+};
+
+export const DEFAULT_FX = {
+  brightness: 100, contrast: 100, saturate: 100, hue: 0, blur: 0,
+  grayscale: 0, sepia: 0, invert: 0, vignette: 0,
+};
+export const DEFAULT_TRANSFORM = { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, fit: 'contain', flipH: false };
+export const DEFAULT_TEXT_STYLE = {
+  font: 'Inter, "Segoe UI", system-ui, sans-serif', size: 64, color: '#ffffff', highlight: '#ffd400',
+  stroke: '#000000', strokeWidth: 6, bg: '#000000', bgOpacity: 0, shadow: true,
+  bold: true, italic: false, uppercase: false, pos: 'bottom', x: 0.5, y: 0.5, maxWidth: 0.86,
+};
+
+export const uid = (p = 'c') => p + Math.random().toString(36).slice(2, 10);
+export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+export function newProject() {
+  return { name: 'Untitled project', aspect: '16:9', width: 1920, height: 1080, fps: 30, background: '#000000', clips: [], mutedTracks: [] };
+}
+
+const visualDefaults = () => ({
+  fadeIn: 0, fadeOut: 0,
+  transition: { type: 'none', duration: 0.8 },
+  fx: { ...DEFAULT_FX }, preset: 'none',
+  transform: { ...DEFAULT_TRANSFORM }, motion: 'none',
+});
+
+export function makeMediaClip(media, track, start) {
+  const duration = media.type === 'image' ? 5 : media.duration;
+  return {
+    id: uid(), type: 'media', mediaId: media.id, name: media.name, track, start, duration,
+    in: 0, speed: 1, volume: 1, muted: false, ...visualDefaults(),
+  };
+}
+
+export function makeColorClip(color, track, start, duration = 3) {
+  return { id: uid(), type: 'color', color, name: 'Color ' + color, track, start, duration, in: 0, ...visualDefaults() };
+}
+
+export function makeTextClip(text, start, duration = 3, style = {}, anim = 'fade') {
+  return {
+    id: uid(), type: 'text', track: 'T1', name: text, text, start, duration, anim,
+    style: { ...DEFAULT_TEXT_STYLE, ...style },
+  };
+}
