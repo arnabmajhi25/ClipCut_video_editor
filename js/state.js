@@ -58,3 +58,20 @@ export function makeTextClip(text, start, duration = 3, style = {}, anim = 'fade
     style: { ...DEFAULT_TEXT_STYLE, ...style },
   };
 }
+
+// ---------- events ----------
+const listeners = {};
+export function on(ev, fn) { (listeners[ev] ||= []).push(fn); }
+export function emit(ev, data) { (listeners[ev] || []).forEach((fn) => fn(data)); }
+
+// ---------- store ----------
+export const store = {
+  project: newProject(),
+  media: new Map(), // id -> media record (not serialized into project JSON)
+  selected: null,
+  time: 0,
+  playing: false,
+  zoom: 80, // px per second
+  snap: true,
+  exporting: false,
+};
