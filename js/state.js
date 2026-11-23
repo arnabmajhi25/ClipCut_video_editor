@@ -75,3 +75,60 @@ export const store = {
   snap: true,
   exporting: false,
 };
+
+// ---------- history ----------
+const undoStack = [];
+const redoStack = [];
+let pending = null;
+
+export function checkpoint() {
+  if (pending === null) pending = JSON.stringify(store.project);
+}
+export function commit() {
+  if (pending === null) return;
+  const now = JSON.stringify(store.project);
+  if (now !== pending) {
+    undoStack.push(pending);
+    if (undoStack.length > 150) undoStack.shift();
+    redoStack.length = 0;
+  }
+  pending = null;
+  emit('history');
+}
+export function mutate(fn) {
+  checkpoint();
+  fn(store.project);
+  commit();
+  emit('change');
+}
+export function softChange() { emit('change', { soft: true }); }
+
+function restore(json) {
+  store.project = JSON.parse(json);
+  if (store.selected && !getClip(store.selected)) store.selected = null;
+  emit('change');
+  emit('select');
+  emit('history');
+}
+export function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(JSON.stringify(store.project));
+  restore(undoStack.pop());
+}
+export function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(JSON.stringify(store.project));
+  restore(redoStack.pop());
+}
+export const canUndo = () => undoStack.length > 0;
+export const canRedo = () => redoStack.length > 0;
+
+export function setProject(p) {
+  store.project = { ...newProject(), ...p };
+  undoStack.length = 0;
+  redoStack.length = 0;
+  store.selected = null;
+  emit('change');
+  emit('select');
+  emit('history');
+}
