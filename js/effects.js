@@ -93,3 +93,124 @@ export function filterString(e, scale = 1) {
   return parts.length ? parts.join(' ') : 'none';
 }
 
+const easeInOut = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+
+let pixCanvas;
+function pixelated(ctx, src, W, H, size) {
+  pixCanvas ||= document.createElement('canvas');
+  const w = Math.max(1, Math.round(W / size));
+  const h = Math.max(1, Math.round(H / size));
+  pixCanvas.width = w;
+  pixCanvas.height = h;
+  const pc = pixCanvas.getContext('2d');
+  pc.clearRect(0, 0, w, h);
+  pc.drawImage(src, 0, 0, w, h);
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(pixCanvas, 0, 0, W, H);
+  ctx.restore();
+}
+
+/**
+ * Composite outgoing layer A (may be null) and incoming layer B at progress p ∈ [0,1].
+ * Layers are full-frame transparent canvases.
+ */
+export function compositeTransition(ctx, A, B, type, p, W, H) {
+  const e = easeInOut(Math.min(1, Math.max(0, p)));
+  const draw = (layer, alpha = 1, fn) => {
+    if (!layer) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    fn?.();
+    ctx.drawImage(layer, 0, 0, W, H);
+    ctx.restore();
+  };
+  const clipRect = (x, y, w, h) => () => { ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip(); };
+
+  switch (type) {
+    case 'fadeblack':
+    case 'fadewhite': {
+      if (e < 0.5) draw(A, 1); else draw(B, 1);
+      const a = e < 0.5 ? e * 2 : 2 - e * 2;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = type === 'fadeblack' ? '#000' : '#fff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+      break;
+    }
+    case 'wipeleft': draw(A); draw(B, 1, clipRect(W * (1 - e), 0, W * e + 1, H)); break;
+    case 'wiperight': draw(A); draw(B, 1, clipRect(0, 0, W * e, H)); break;
+    case 'wipeup': draw(A); draw(B, 1, clipRect(0, H * (1 - e), W, H * e + 1)); break;
+    case 'wipedown': draw(A); draw(B, 1, clipRect(0, 0, W, H * e)); break;
+    case 'slideleft': draw(A, 1, () => ctx.translate(-W * e, 0)); draw(B, 1, () => ctx.translate(W * (1 - e), 0)); break;
+    case 'slideright': draw(A, 1, () => ctx.translate(W * e, 0)); draw(B, 1, () => ctx.translate(-W * (1 - e), 0)); break;
+    case 'slideup': draw(A, 1, () => ctx.translate(0, -H * e)); draw(B, 1, () => ctx.translate(0, H * (1 - e))); break;
+    case 'slidedown': draw(A, 1, () => ctx.translate(0, H * e)); draw(B, 1, () => ctx.translate(0, -H * (1 - e))); break;
+    case 'zoomin': {
+      draw(A, 1 - e, () => { ctx.translate(W / 2, H / 2); ctx.scale(1 + e * 0.6, 1 + e * 0.6); ctx.translate(-W / 2, -H / 2); });
+      const s = 0.6 + 0.4 * e;
+      draw(B, e, () => { ctx.translate(W / 2, H / 2); ctx.scale(s, s); ctx.translate(-W / 2, -H / 2); });
+      break;
+    }
+    case 'zoomout': {
+      const s = 1 - 0.5 * e;
+      draw(B, e);
+      draw(A, 1 - e, () => { ctx.translate(W / 2, H / 2); ctx.scale(s, s); ctx.translate(-W / 2, -H / 2); });
+      break;
+    }
+    case 'circle': {
+      draw(A);
+      const r = (e * Math.hypot(W, H)) / 2;
+      draw(B, 1, () => { ctx.beginPath(); ctx.arc(W / 2, H / 2, Math.max(0.1, r), 0, Math.PI * 2); ctx.clip(); });
+      break;
+    }
+    case 'blur': {
+      const k = Math.min(W, H) / 1080;
+      draw(A, 1 - e, () => { ctx.filter = `blur(${e * 24 * k}px)`; });
+      draw(B, e, () => { ctx.filter = `blur(${(1 - e) * 24 * k}px)`; });
+      break;
+    }
+    case 'spin': {
+      draw(A);
+      draw(B, e, () => {
+        ctx.translate(W / 2, H / 2);
+        ctx.rotate((1 - e) * -Math.PI);
+        ctx.scale(e, e);
+        ctx.translate(-W / 2, -H / 2);
+      });
+      break;
+    }
+    case 'pixelate': {
+      const size = 1 + Math.round(Math.sin(p * Math.PI) * 48 * (Math.min(W, H) / 1080));
+      const src = p < 0.5 ? A : B;
+      if (src) pixelated(ctx, src, W, H, size);
+      break;
+    }
+    case 'glitch': {
+      const src = p < 0.5 ? A : B;
+      if (!src) break;
+      const amp = Math.sin(p * Math.PI);
+      ctx.drawImage(src, 0, 0, W, H);
+      const slices = 14;
+      const sh = H / slices;
+      const seed = Math.floor(p * 40);
+      for (let i = 0; i < slices; i++) {
+        const r = Math.sin((i + 1) * 999 + seed * 77) * 0.5 + 0.5;
+        if (r < 0.45) continue;
+        const dx = (r - 0.5) * W * 0.25 * amp * (i % 2 ? 1 : -1);
+        ctx.drawImage(src, 0, i * sh, W, sh, dx, i * sh, W, sh);
+      }
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.35 * amp;
+      ctx.drawImage(src, 12 * amp, 0, W, H);
+      ctx.restore();
+      break;
+    }
+    case 'fade':
+    default:
+      draw(A, 1);
+      draw(B, e);
+  }
+}
