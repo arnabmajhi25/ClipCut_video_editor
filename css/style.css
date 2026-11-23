@@ -189,3 +189,74 @@ a { color: var(--accent2); }
 .field.wide select, .field.wide input:not([type=checkbox]):not([type=color]) { width: 100%; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .kbd { display: inline-block; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 11px; background: var(--bg3); }
+
+/* ---------- timeline ---------- */
+.timeline { background: var(--bg2); border-top: 1px solid var(--line); display: grid; grid-template-rows: 40px minmax(0, 1fr); min-height: 0; }
+.tl-toolbar { display: flex; align-items: center; gap: 6px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+.tl-toolbar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+.tl-toolbar .zoom { display: flex; align-items: center; gap: 6px; width: 180px; color: var(--muted); }
+.tl-toolbar .icon-btn.on { border-color: var(--accent); color: var(--accent2); }
+.tl-main { display: grid; grid-template-columns: 96px minmax(0, 1fr); min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.tl-heads { border-right: 1px solid var(--line); background: var(--bg2); position: sticky; left: 0; z-index: 3; }
+.tl-head-ruler { height: 26px; border-bottom: 1px solid var(--line); }
+.tl-head { display: flex; flex-direction: column; justify-content: center; padding: 0 10px; border-bottom: 1px solid var(--line); }
+.tl-head span { font-weight: 700; font-size: 12px; }
+.tl-head small { font-size: 10.5px; }
+.tl-head[data-kind="video"], .tl-track[data-kind="video"] { height: 58px; }
+.tl-head[data-kind="text"], .tl-track[data-kind="text"] { height: 36px; }
+.tl-head[data-kind="audio"], .tl-track[data-kind="audio"] { height: 46px; }
+.tl-scroll { overflow-x: auto; overflow-y: hidden; position: relative; }
+.tl-content { position: relative; min-width: 100%; }
+.tl-ruler { position: sticky; left: 0; display: block; height: 26px; border-bottom: 1px solid var(--line); cursor: text; background: var(--bg2); z-index: 2; }
+.tl-track { position: relative; border-bottom: 1px solid var(--line); background: repeating-linear-gradient(90deg, transparent 0, transparent 99px, rgba(255,255,255,.015) 100px); }
+.tl-track.drop { background-color: rgba(124, 92, 255, .1); }
+.tl-playhead { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid #ff4d6d; z-index: 5; pointer-events: none; }
+.tl-playhead .ph-head { position: absolute; top: 0; left: -7px; width: 12px; height: 14px; background: #ff4d6d; clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%); }
+.tl-snapline { position: absolute; top: 0; bottom: 0; border-left: 1px dashed #ffd24d; z-index: 4; pointer-events: none; display: none; }
+
+.clip {
+  position: absolute; top: 3px; bottom: 3px; border-radius: 6px; overflow: hidden;
+  border: 1.5px solid rgba(255,255,255,.12); cursor: grab; background: var(--video);
+  display: flex; align-items: flex-end;
+}
+.clip.k-image { background: var(--image); }
+.clip.k-color { background: var(--color); }
+.clip.k-audio { background: #0f5136; border-color: rgba(31,179,107,.5); }
+.clip.k-text { background: #5b4310; border-color: rgba(224,164,34,.55); align-items: center; }
+.clip.selected { border-color: #fff; box-shadow: 0 0 0 1px #fff, 0 0 12px rgba(124,92,255,.6); z-index: 2; }
+.clip.dragging { opacity: .85; cursor: grabbing; z-index: 3; }
+.clip .thumbs { position: absolute; inset: 0; display: flex; overflow: hidden; opacity: .9; }
+.clip .thumbs img { height: 100%; flex: none; object-fit: cover; pointer-events: none; }
+.clip canvas.wave { position: absolute; left: 0; top: 0; height: 100%; pointer-events: none; }
+.clip .label {
+  position: relative; z-index: 1; font-size: 11px; padding: 2px 6px; margin: 3px; border-radius: 4px; background: rgba(0,0,0,.55);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 6px); pointer-events: none;
+}
+.clip.k-text .label { background: none; font-weight: 600; }
+.clip .handle { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 2; cursor: ew-resize; }
+.clip .handle.l { left: 0; }
+.clip .handle.r { right: 0; }
+.clip .handle:hover, .clip.selected .handle { background: rgba(255,255,255,.35); }
+.clip .tr-badge { position: absolute; left: 0; top: 0; bottom: 0; z-index: 1; background: linear-gradient(90deg, rgba(255,255,255,.4), rgba(255,255,255,0)); pointer-events: none; border-right: 1px dashed rgba(255,255,255,.6); }
+.clip .fx-badge { position: absolute; right: 10px; top: 3px; z-index: 1; font-size: 10px; background: rgba(0,0,0,.6); border-radius: 4px; padding: 0 4px; pointer-events: none; }
+.clip .fade { position: absolute; top: 0; bottom: 0; z-index: 1; pointer-events: none; }
+.clip .fade.in { left: 0; background: linear-gradient(to top right, rgba(0,0,0,.55) 50%, transparent 50%); }
+.clip .fade.out { right: 0; background: linear-gradient(to top left, rgba(0,0,0,.55) 50%, transparent 50%); }
+
+/* ---------- modal & toasts ---------- */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 50; backdrop-filter: blur(3px); }
+.modal { background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 20px; width: min(480px, 92vw); max-height: 86vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.modal h2 { margin: 0 0 12px; font-size: 17px; }
+.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.progress { height: 8px; background: var(--bg4); border-radius: 99px; overflow: hidden; margin: 12px 0 6px; }
+.progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), #3ddcff); width: 0; transition: width .2s; }
+.shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: center; }
+.toasts { position: fixed; bottom: 316px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 60; pointer-events: none; }
+.toast { background: var(--bg4); border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.5); animation: tin .2s ease; }
+.toast.error { border-color: var(--danger); }
+.toast.ok { border-color: var(--ok); }
+@keyframes tin { from { opacity: 0; transform: translateY(6px); } }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #2f3442; border-radius: 99px; border: 2px solid var(--bg2); }
+::-webkit-scrollbar-track { background: transparent; }
