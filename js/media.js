@@ -53,6 +53,65 @@ async function probe(media) {
   el.load();
 }
 
+async function makeThumbs(media, count = 12) {
+  const v = document.createElement('video');
+  v.muted = true;
+  v.preload = 'auto';
+  v.src = media.url;
+  await once(v, 'loadeddata');
+  const h = 64;
+  const w = Math.max(40, Math.round(h * ((media.width / media.height) || 16 / 9)));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  const thumbs = [];
+  for (let i = 0; i < count; i++) {
+    v.currentTime = Math.min(media.duration - 0.05, ((i + 0.5) * media.duration) / count);
+    await once(v, 'seeked');
+    ctx.drawImage(v, 0, 0, w, h);
+    thumbs.push(c.toDataURL('image/jpeg', 0.6));
+    if (i === 0) { media.poster = thumbs[0]; emit('media'); }
+  }
+  media.thumbs = thumbs;
+  media.thumbW = w;
+  v.removeAttribute('src');
+  v.load();
+}
+
+const PEAKS_PER_SEC = 50;
+async function makePeaks(media) {
+  if (media.blob.size > 400e6) return; // skip giant files to protect memory
+  const buf = await media.blob.arrayBuffer();
+  const ac = new OfflineAudioContext(1, 1, 44100);
+  let audio;
+  try { audio = await ac.decodeAudioData(buf); } catch { media.hasAudio = false; return; }
+  const ch = audio.getChannelData(0);
+  const n = Math.max(1, Math.ceil(audio.duration * PEAKS_PER_SEC));
+  const step = Math.max(1, Math.floor(ch.length / n));
+  const peaks = new Float32Array(n);
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    let m = 0;
+    const s = i * step;
+    for (let j = s; j < s + step && j < ch.length; j += 4) { const a = Math.abs(ch[j]); if (a > m) m = a; }
+    peaks[i] = m;
+    if (m > max) max = m;
+  }
+  if (max > 0) for (let i = 0; i < n; i++) peaks[i] /= max;
+  media.peaks = peaks;
+  media.peaksPerSec = PEAKS_PER_SEC;
+  media.hasAudio = true;
+}
+
+function generateExtras(media) {
+  const jobs = [];
+  if (media.type === 'video') jobs.push(makeThumbs(media).catch(() => {}));
+  if (media.type === 'image') media.poster = media.url;
+  if (media.type !== 'image') jobs.push(makePeaks(media).catch(() => {}));
+  Promise.all(jobs).then(() => emit('media'));
+}
+
 /** Import a Blob/File into the media library. */
 export async function importBlob(blob, name, extra = {}) {
   const type = detectType(blob, name);
@@ -65,6 +124,7 @@ export async function importBlob(blob, name, extra = {}) {
   store.media.set(media.id, media);
   if (!extra.skipSave) db.putMedia(media).catch((e) => console.warn('Could not persist media', e));
   emit('media');
+  generateExtras(media);
   return media;
 }
 
