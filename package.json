@@ -1,0 +1,10 @@
+{
+  "name": "clipcut",
+  "version": "0.1.0",
+  "description": "Compact in-browser video editor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}
