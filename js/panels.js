@@ -242,3 +242,57 @@ function injectTransitionPreviewCSS() {
   ${Object.entries(anim).map(([k, v]) => `.tr-${k}>i{${v}}`).join('\n')}`;
   document.head.append(h('style', {}, css));
 }
+
+// ---------- Effects ----------
+function initEffectsPanel(el) {
+  const presetGrid = h('div', { class: 'tile-grid' });
+  for (const [k, p] of Object.entries(PRESETS)) {
+    const f = [];
+    if (p.brightness) f.push(`brightness(${p.brightness}%)`);
+    if (p.contrast) f.push(`contrast(${p.contrast}%)`);
+    if (p.saturate) f.push(`saturate(${p.saturate}%)`);
+    if (p.hue) f.push(`hue-rotate(${p.hue}deg)`);
+    if (p.grayscale) f.push(`grayscale(${p.grayscale}%)`);
+    if (p.sepia) f.push(`sepia(${p.sepia}%)`);
+    if (p.invert) f.push(`invert(${p.invert}%)`);
+    presetGrid.append(h('button', {
+      class: 'tile',
+      onclick: () => {
+        const c = requireVisual();
+        if (!c) return;
+        mutate(() => { c.preset = k; });
+        toast(`${p.label} applied`, 'ok');
+      },
+    }, h('div', { class: 'ico b', style: { filter: f.join(' ') || 'none', background: 'linear-gradient(135deg,#ff7a59,#ffcc4d 45%,#3b9cff)' } }), p.label));
+  }
+  const motionGrid = h('div', { class: 'tile-grid' });
+  for (const [k, label] of Object.entries(MOTIONS)) {
+    motionGrid.append(h('button', {
+      class: 'tile',
+      onclick: () => {
+        const c = requireVisual();
+        if (!c) return;
+        mutate(() => { c.motion = k; });
+        toast(`${label} applied`, 'ok');
+      },
+    }, label));
+  }
+  el.append(
+    h('div', { class: 'panel-title' }, 'Effects'),
+    h('div', { class: 'note' }, 'Select a clip, then click a look. Fine-tune brightness, contrast, blur, vignette and more in the right panel.'),
+    h('div', { class: 'panel-sub' }, 'Color looks'),
+    presetGrid,
+    h('div', { class: 'panel-sub' }, 'Motion'),
+    motionGrid,
+    h('div', { class: 'panel-sub' }, 'Batch'),
+    h('button', {
+      class: 'btn full',
+      onclick: () => {
+        const c = requireVisual();
+        if (!c) return;
+        mutate((p) => p.clips.forEach((x) => { if (isVisual(x)) { x.preset = c.preset; x.fx = { ...c.fx }; } }));
+        toast('Look copied to all visual clips', 'ok');
+      },
+    }, "Copy selected clip's look to all clips")
+  );
+}
