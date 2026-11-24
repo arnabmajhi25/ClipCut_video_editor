@@ -4,13 +4,17 @@ A compact video editor that runs entirely in the browser — no uploads, no inst
 
 > 🚧 Work in progress. Built step by step.
 
-## Planned features
+## Progress
 
-- Multi-track timeline: cut, trim, split and arrange clips
-- Music track with waveforms
-- Captions with styles and animations
-- Transitions and color effects
-- Export to MP4 / WebM
+- [x] Project state, undo/redo and IndexedDB storage
+- [x] Media import with thumbnails and waveforms
+- [x] Canvas renderer with effects, transitions and captions
+- [x] Multi-track timeline: move, trim, split, snap and zoom
+- [x] Inspector panel for clip properties
+- [x] Sidebar panels: media, text, transitions and effects
+- [ ] Wire everything together (playback, shortcuts, autosave)
+- [ ] Music: Spotify search
+- [ ] Export to MP4 / WebM
 
 ## Run locally
 
