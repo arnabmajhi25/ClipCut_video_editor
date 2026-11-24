@@ -179,3 +179,91 @@ function transitionSection(clip) {
       : 'No clip directly before this one on the track — the transition reveals it over the background. Butt clips together (snap) to blend between them.')
   );
 }
+
+// ---------- panels ----------
+function header(clip, kindLabel, color) {
+  return h('div', { class: 'insp-head' },
+    h('span', { class: 'swatch', style: { background: color } }),
+    h('div', { class: 'title', title: clip.name }, clip.type === 'text' ? 'Caption' : clip.name || 'Clip'),
+    h('span', { class: 'badge' }, kindLabel),
+    h('button', { class: 'icon-btn btn danger', title: 'Delete clip', onclick: () => deleteClip(clip.id) }, '🗑')
+  );
+}
+
+function renderVisual(clip, kind) {
+  const color = { video: 'var(--video)', image: 'var(--image)', color: 'var(--color)' }[kind];
+  root.append(header(clip, kind, color));
+  const timing = [...timingFields(clip)];
+  if (kind === 'color') timing.unshift(colorField(clip, 'color', 'Color'));
+  root.append(section('Clip', ...timing, ...audioFields(clip, true)));
+  root.append(transitionSection(clip), effectsSection(clip), transformSection(clip));
+}
+
+function renderAudio(clip) {
+  root.append(header(clip, 'audio', 'var(--audio)'));
+  root.append(section('Clip', ...timingFields(clip), ...audioFields(clip, false)));
+  const m = store.media.get(clip.mediaId);
+  if (m?.source?.kind === 'spotify') {
+    root.append(h('div', { class: 'note' }, '♫ From Spotify: ', h('b', {}, m.source.title), ' — ', m.source.artist,
+      m.source.url ? h('div', {}, h('a', { href: m.source.url, target: '_blank', rel: 'noopener' }, 'Open in Spotify')) : null));
+  }
+}
+
+function renderText(clip) {
+  root.append(header(clip, 'text', 'var(--textclip)'));
+  const ta = h('textarea', { rows: 3, value: clip.text, placeholder: 'Caption text…' });
+  ta.value = clip.text;
+  ta.addEventListener('input', () => { checkpoint(); clip.text = ta.value; clip.name = ta.value; softChange(); });
+  ta.addEventListener('change', finish);
+  root.append(section('Text', ta, h('div', { style: { height: '8px' } }), ...timingFields(clip),
+    selectField(clip, 'anim', 'Animation', TEXT_ANIMS)));
+  const s = 'style.';
+  root.append(section('Style',
+    selectField(clip, s + 'font', 'Font', FONTS),
+    slider(clip, s + 'size', 'Size', 16, 220, 1, { def: 64 }),
+    checkField(clip, s + 'bold', 'Bold'),
+    checkField(clip, s + 'italic', 'Italic'),
+    checkField(clip, s + 'uppercase', 'UPPERCASE'),
+    colorField(clip, s + 'color', 'Text color'),
+    colorField(clip, s + 'highlight', 'Highlight'),
+    colorField(clip, s + 'stroke', 'Outline'),
+    slider(clip, s + 'strokeWidth', 'Outline width', 0, 20, 0.5, { def: 6 }),
+    checkField(clip, s + 'shadow', 'Drop shadow'),
+    colorField(clip, s + 'bg', 'Box color'),
+    slider(clip, s + 'bgOpacity', 'Box opacity', 0, 1, 0.01, { fmt: (v) => `${Math.round(v * 100)}%`, def: 0 }),
+    slider(clip, s + 'maxWidth', 'Max width', 0.2, 1, 0.01, { fmt: (v) => `${Math.round(v * 100)}%`, def: 0.86 })
+  ));
+  const posFields = [selectField(clip, s + 'pos', 'Position', { bottom: 'Bottom', center: 'Center', top: 'Top', custom: 'Custom' }, { rerender: true })];
+  if (clip.style.pos === 'custom') {
+    posFields.push(
+      slider(clip, s + 'x', 'X', 0, 1, 0.005, { fmt: (v) => (+v).toFixed(2), def: 0.5 }),
+      slider(clip, s + 'y', 'Y', 0, 1, 0.005, { fmt: (v) => (+v).toFixed(2), def: 0.5 })
+    );
+  }
+  root.append(section('Position', ...posFields));
+  root.append(h('button', {
+    class: 'btn full',
+    onclick: () => {
+      mutate((p) => p.clips.forEach((c) => { if (c.type === 'text' && c !== clip) { c.style = { ...clip.style }; c.anim = clip.anim; } }));
+      toast('Style applied to all captions', 'ok');
+    },
+  }, 'Apply this style to all captions'));
+}
+
+function renderProject() {
+  const p = store.project;
+  root.append(h('div', { class: 'insp-head' }, h('div', { class: 'title' }, 'Project')));
+  root.append(section('Canvas',
+    colorField(p, 'background', 'Background'),
+    selectField(p, 'fps', 'Export FPS', { 24: '24 fps (film)', 30: '30 fps', 60: '60 fps' }),
+    h('div', { class: 'note' }, `${p.width}×${p.height} · ${p.aspect} · ${p.clips.length} clip(s) · ${formatTime(projectDuration())}`)
+  ));
+  root.append(section('Quick guide',
+    h('div', { class: 'note', html: `
+      <b>1.</b> Import media (left panel) and drag it onto the timeline.<br>
+      <b>2.</b> Drag clips to move; drag the edges to trim; press <span class="kbd">S</span> to split at the playhead.<br>
+      <b>3.</b> Select a clip to edit speed, volume, effects, transitions and position here.<br>
+      <b>4.</b> Add music from <b>Music</b> and captions from <b>Text</b>.<br>
+      <b>5.</b> Click <b>Export</b> to render your video.` })
+  ));
+}
