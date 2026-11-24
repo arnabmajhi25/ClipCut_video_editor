@@ -348,3 +348,33 @@ function startClipDrag(e, node) {
     emit('change');
   });
 }
+
+function setupDrop(el, track) {
+  el.addEventListener('dragover', (e) => {
+    const types = [...e.dataTransfer.types];
+    if (!types.includes(MEDIA_MIME) && !types.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    el.classList.add('drop');
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drop'));
+  el.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    el.classList.remove('drop');
+    const time = Math.max(0, xToTime(e.clientX));
+    const id = e.dataTransfer.getData(MEDIA_MIME);
+    if (id) {
+      const m = store.media.get(id);
+      if (m) addMediaToTimeline(m, track.id, time);
+      return;
+    }
+    if (e.dataTransfer.files.length) {
+      const list = await importFiles([...e.dataTransfer.files], (err) => toast(err.message, 'error'));
+      let t = time;
+      for (const m of list) { const c = addMediaToTimeline(m, track.id, t); t = clipEnd(c); }
+    }
+  });
+}
+
+export { MEDIA_MIME };
