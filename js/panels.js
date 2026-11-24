@@ -150,3 +150,95 @@ function initTextPanel(el) {
       'Tip: select a caption to change font, colors, outline, box, position and animation (', Object.values(TEXT_ANIMS).slice(1).join(', '), ').')
   );
 }
+
+// ---------- Transitions ----------
+function requireVisual() {
+  const c = selectedClip();
+  if (!c || !isVisual(c)) { toast('Select a video, image or color clip on the timeline first'); return null; }
+  return c;
+}
+
+function initTransitionsPanel(el) {
+  let dur = 0.8;
+  const durOut = h('span', { class: 'val' }, '0.80s');
+  const durIn = h('input', { type: 'range', min: 0.2, max: 3, step: 0.05, value: dur, oninput: (e) => { dur = +e.target.value; durOut.textContent = `${dur.toFixed(2)}s`; } });
+  const grid = h('div', { class: 'tile-grid' });
+  for (const [k, label] of Object.entries(TRANSITIONS)) {
+    grid.append(h('button', {
+      class: 'tile', 'data-tr': k,
+      onclick: () => {
+        const c = requireVisual();
+        if (!c) return;
+        mutate(() => { c.transition = { type: k, duration: dur }; });
+        toast(k === 'none' ? 'Transition removed' : `${label} applied`, 'ok');
+      },
+    }, h('div', { class: `ico tr-prev tr-${k}` }, h('i')), label));
+  }
+  el.append(
+    h('div', { class: 'panel-title' }, 'Transitions'),
+    h('div', { class: 'note' }, 'Select a clip, then pick a transition. It plays at the ', h('b', {}, 'start'), ' of that clip, blending from the clip right before it.'),
+    h('div', { class: 'field', style: { marginTop: '10px' } }, h('label', {}, 'Duration'), durIn, durOut),
+    grid,
+    h('div', { class: 'panel-sub' }, 'Batch'),
+    h('button', {
+      class: 'btn full',
+      onclick: () => {
+        const type = store.selected && selectedClip()?.transition?.type;
+        const t = type && type !== 'none' ? type : 'fade';
+        let n = 0;
+        mutate((p) => {
+          const v1 = p.clips.filter((c) => c.track === 'V1').sort((a, b) => a.start - b.start);
+          v1.forEach((c, i) => { if (i > 0 && Math.abs(v1[i - 1].start + v1[i - 1].duration - c.start) < 0.06) { c.transition = { type: t, duration: dur }; n++; } });
+        });
+        toast(n ? `Applied "${TRANSITIONS[t]}" to ${n} cut(s)` : 'No back-to-back clips on the main track', n ? 'ok' : '');
+      },
+    }, 'Apply to every cut on main track'),
+    h('button', {
+      class: 'btn full', style: { marginTop: '6px' },
+      onclick: () => mutate((p) => p.clips.forEach((c) => { if (c.transition) c.transition.type = 'none'; })),
+    }, 'Remove all transitions')
+  );
+  injectTransitionPreviewCSS();
+}
+
+function injectTransitionPreviewCSS() {
+  const anim = {
+    fade: 'opacity:0;animation:trf 1.6s infinite',
+    fadeblack: 'opacity:0;animation:trf 1.6s infinite;filter:brightness(.2)',
+    fadewhite: 'opacity:0;animation:trf 1.6s infinite;filter:brightness(2)',
+    wipeleft: 'clip-path:inset(0 0 0 100%);animation:trwl 1.6s infinite',
+    wiperight: 'clip-path:inset(0 100% 0 0);animation:trwr 1.6s infinite',
+    wipeup: 'clip-path:inset(100% 0 0 0);animation:trwu 1.6s infinite',
+    wipedown: 'clip-path:inset(0 0 100% 0);animation:trwd 1.6s infinite',
+    slideleft: 'transform:translateX(100%);animation:trsl 1.6s infinite',
+    slideright: 'transform:translateX(-100%);animation:trsr 1.6s infinite',
+    slideup: 'transform:translateY(100%);animation:trsu 1.6s infinite',
+    slidedown: 'transform:translateY(-100%);animation:trsd 1.6s infinite',
+    zoomin: 'transform:scale(.3);opacity:0;animation:trzi 1.6s infinite',
+    zoomout: 'transform:scale(1.6);opacity:0;animation:trzo 1.6s infinite',
+    circle: 'clip-path:circle(0% at 50% 50%);animation:trc 1.6s infinite',
+    blur: 'filter:blur(8px);opacity:0;animation:trb 1.6s infinite',
+    spin: 'transform:rotate(-180deg) scale(0);animation:trsp 1.6s infinite',
+    pixelate: 'opacity:0;animation:trf 1.6s steps(4) infinite',
+    glitch: 'opacity:0;animation:trg 1.6s steps(6) infinite',
+    none: 'display:none',
+  };
+  const css = `
+  @keyframes trf{40%{opacity:0}80%,100%{opacity:1}}
+  @keyframes trwl{40%{clip-path:inset(0 0 0 100%)}80%,100%{clip-path:inset(0 0 0 0)}}
+  @keyframes trwr{40%{clip-path:inset(0 100% 0 0)}80%,100%{clip-path:inset(0 0 0 0)}}
+  @keyframes trwu{40%{clip-path:inset(100% 0 0 0)}80%,100%{clip-path:inset(0 0 0 0)}}
+  @keyframes trwd{40%{clip-path:inset(0 0 100% 0)}80%,100%{clip-path:inset(0 0 0 0)}}
+  @keyframes trsl{40%{transform:translateX(100%)}80%,100%{transform:none}}
+  @keyframes trsr{40%{transform:translateX(-100%)}80%,100%{transform:none}}
+  @keyframes trsu{40%{transform:translateY(100%)}80%,100%{transform:none}}
+  @keyframes trsd{40%{transform:translateY(-100%)}80%,100%{transform:none}}
+  @keyframes trzi{40%{transform:scale(.3);opacity:0}80%,100%{transform:none;opacity:1}}
+  @keyframes trzo{40%{transform:scale(1.6);opacity:0}80%,100%{transform:none;opacity:1}}
+  @keyframes trc{40%{clip-path:circle(0% at 50% 50%)}80%,100%{clip-path:circle(75% at 50% 50%)}}
+  @keyframes trb{40%{filter:blur(8px);opacity:0}80%,100%{filter:none;opacity:1}}
+  @keyframes trsp{40%{transform:rotate(-180deg) scale(0)}80%,100%{transform:none}}
+  @keyframes trg{40%{opacity:0;transform:translateX(0)}50%{opacity:1;transform:translateX(6px)}60%{transform:translateX(-6px)}70%,100%{opacity:1;transform:none}}
+  ${Object.entries(anim).map(([k, v]) => `.tr-${k}>i{${v}}`).join('\n')}`;
+  document.head.append(h('style', {}, css));
+}
