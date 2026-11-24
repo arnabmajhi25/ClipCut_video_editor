@@ -34,3 +34,29 @@ export function exportSRT() {
   const caps = store.project.clips.filter((c) => c.type === 'text').sort((a, b) => a.start - b.start);
   return caps.map((c, i) => `${i + 1}\n${srtTime(c.start)} --> ${srtTime(c.start + c.duration)}\n${c.text}\n`).join('\n');
 }
+
+export function addCaptions(items, style = {}, anim = 'fade') {
+  const clips = items.map((it) => makeTextClip(it.text, it.start, Math.max(0.3, it.end - it.start), style, anim));
+  mutate((p) => p.clips.push(...clips));
+  if (clips[0]) select(clips[0].id);
+  return clips.length;
+}
+
+/**
+ * Turns a plain transcript into timed captions. Each line (or sentence chunk of
+ * ~`maxWords` words) gets a duration proportional to its word count.
+ */
+export function transcriptToCaptions(text, startAt, { wps = 2.6, maxWords = 8, gap = 0.05 } = {}) {
+  const chunks = [];
+  for (const line of text.split(/\n+/).map((l) => l.trim()).filter(Boolean)) {
+    const words = line.split(/\s+/);
+    for (let i = 0; i < words.length; i += maxWords) chunks.push(words.slice(i, i + maxWords).join(' '));
+  }
+  let t = startAt;
+  return chunks.map((c) => {
+    const d = Math.max(1, c.split(/\s+/).length / wps);
+    const item = { start: t, end: t + d, text: c };
+    t += d + gap;
+    return item;
+  });
+}
