@@ -267,3 +267,23 @@ function renderProject() {
       <b>5.</b> Click <b>Export</b> to render your video.` })
   ));
 }
+
+export function render() {
+  if (!root) return;
+  root.replaceChildren();
+  const clip = selectedClip();
+  if (!clip) return renderProject();
+  const kind = clipMediaType(clip);
+  if (kind === 'text') renderText(clip);
+  else if (kind === 'audio') renderAudio(clip);
+  else if (kind === 'missing') root.append(header(clip, 'missing', '#666'), h('div', { class: 'note' }, 'The media for this clip is missing. Re-import it or delete the clip.'));
+  else renderVisual(clip, kind);
+}
+
+export function initInspector(el) {
+  root = el;
+  on('select', render);
+  on('media', () => { if (!root.contains(document.activeElement)) render(); });
+  on('change', () => { if (!root.contains(document.activeElement)) render(); });
+  render();
+}
