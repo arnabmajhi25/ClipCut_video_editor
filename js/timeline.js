@@ -115,3 +115,60 @@ function splitSelected() {
   if (!target || !splitClip(target.id, store.time)) toast('Place the playhead over a clip to split it');
 }
 export { splitSelected };
+
+// ---------- rendering ----------
+function renderAll() {
+  for (const t of TRACKS) trackEls[t.id].replaceChildren();
+  for (const c of store.project.clips) trackEls[c.track]?.append(clipEl(c));
+  const muted = new Set(store.project.mutedTracks || []);
+  document.querySelectorAll('.mute-btn').forEach((b) => {
+    const m = muted.has(b.dataset.track);
+    b.textContent = m ? '🔇' : '🔊';
+    b.classList.toggle('active', m);
+  });
+  updateWidth();
+  onTime();
+}
+
+function clipEl(c) {
+  const kind = clipMediaType(c);
+  const z = store.zoom;
+  const w = Math.max(3, c.duration * z);
+  const el = h('div', {
+    class: `clip k-${kind}${c.id === store.selected ? ' selected' : ''}${c.id === draggingId ? ' dragging' : ''}`,
+    'data-id': c.id,
+    style: { left: `${c.start * z}px`, width: `${w}px` },
+  });
+  const media = c.type === 'media' ? store.media.get(c.mediaId) : null;
+  if (kind === 'video' && media?.thumbs?.length) {
+    const box = h('div', { class: 'thumbs' });
+    const tileW = (media.thumbW || 114) * (52 / 64);
+    const n = Math.min(80, Math.ceil(w / tileW));
+    for (let i = 0; i < n; i++) {
+      const tt = c.in + ((i * tileW) / z) * (c.speed || 1);
+      const idx = clamp(Math.floor((tt / media.duration) * media.thumbs.length), 0, media.thumbs.length - 1);
+      box.append(h('img', { src: media.thumbs[idx], style: { width: `${tileW}px` } }));
+    }
+    el.append(box);
+  } else if (kind === 'image' && media) {
+    el.append(h('div', { class: 'thumbs', style: { backgroundImage: `url(${media.url})`, backgroundSize: 'auto 100%', backgroundRepeat: 'repeat-x' } }));
+  } else if (kind === 'color') {
+    el.style.background = c.color;
+  }
+  if (kind === 'audio' && media?.peaks) el.append(waveCanvas(c, media, w, 40));
+
+  let label = c.type === 'text' ? c.text : c.name || media?.name || 'Missing media';
+  if (c.speed && c.speed !== 1) label += ` · ${c.speed}×`;
+  if (c.muted) label = '🔇 ' + label;
+  el.append(h('div', { class: 'label', title: label }, label));
+
+  const td = transitionDuration(c);
+  if (td) el.append(h('div', { class: 'tr-badge', style: { width: `${td * z}px` }, title: `Transition: ${c.transition.type}` }));
+  if (c.fadeIn) el.append(h('div', { class: 'fade in', style: { width: `${c.fadeIn * z}px` } }));
+  if (c.fadeOut) el.append(h('div', { class: 'fade out', style: { width: `${c.fadeOut * z}px` } }));
+  const hasFx = (c.preset && c.preset !== 'none') || (c.motion && c.motion !== 'none') ||
+    (c.fx && Object.entries(c.fx).some(([k, v]) => v !== (['brightness', 'contrast', 'saturate'].includes(k) ? 100 : 0)));
+  if (hasFx) el.append(h('div', { class: 'fx-badge', title: 'Has effects' }, '✦'));
+  el.append(h('div', { class: 'handle l', title: 'Trim start' }), h('div', { class: 'handle r', title: 'Trim end' }));
+  return el;
+}
