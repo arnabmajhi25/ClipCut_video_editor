@@ -85,3 +85,68 @@ async function deleteMediaFlow(m) {
   if (store.selected && !store.project.clips.some((c) => c.id === store.selected)) select(null);
   await removeMedia(m.id);
 }
+
+// ---------- Text & captions ----------
+export const TEXT_PRESETS = [
+  { id: 'classic', label: 'Classic subtitle', css: 'font-size:15px;text-shadow:0 0 3px #000', style: { size: 52, bold: true, strokeWidth: 5 }, anim: 'fade' },
+  { id: 'social', label: 'BOLD SOCIAL', css: 'font-size:18px;font-weight:900;color:#fff;text-shadow:0 0 4px #000', style: { size: 84, uppercase: true, strokeWidth: 9, pos: 'center', font: 'Arial Black, Arial, sans-serif' }, anim: 'highlight' },
+  { id: 'title', label: 'Big Title', css: 'font-size:24px;font-family:Impact', style: { size: 150, pos: 'center', strokeWidth: 0, font: 'Impact, Haettenschweiler, sans-serif' }, anim: 'pop' },
+  { id: 'boxed', label: 'Boxed caption', css: 'font-size:14px;background:rgba(0,0,0,.8);padding:3px 8px;border-radius:4px', style: { size: 50, bgOpacity: 0.78, strokeWidth: 0, shadow: false }, anim: 'slide' },
+  { id: 'typewriter', label: 'Typewriter', css: 'font-family:Courier New;font-size:15px', style: { size: 56, font: '"Courier New", monospace', strokeWidth: 0, bgOpacity: 0.55 }, anim: 'typewriter' },
+  { id: 'neon', label: 'Neon glow', css: 'color:#39ff14;font-size:18px;text-shadow:0 0 8px #39ff14', style: { size: 96, color: '#39ff14', stroke: '#063d00', strokeWidth: 3, pos: 'center', font: '"Trebuchet MS", sans-serif' }, anim: 'pop' },
+  { id: 'lowerthird', label: 'Lower third', css: 'font-size:14px;background:#7c5cff;padding:3px 8px;border-radius:4px', style: { size: 46, pos: 'custom', x: 0.3, y: 0.8, bg: '#7c5cff', bgOpacity: 0.92, strokeWidth: 0, shadow: false, maxWidth: 0.5 }, anim: 'slide' },
+  { id: 'wordbyword', label: 'Word by word', css: 'font-size:16px;font-weight:800;color:#ffd400;text-shadow:0 0 3px #000', style: { size: 80, color: '#ffd400', strokeWidth: 8, pos: 'center', uppercase: true }, anim: 'wordpop' },
+];
+
+function initTextPanel(el) {
+  const presetSel = h('select', {}, TEXT_PRESETS.map((p, i) => h('option', { value: i }, p.label)));
+  const wordsSel = h('select', {}, [3, 5, 8, 12].map((n) => h('option', { value: n, selected: n === 8 }, `${n} words / caption`)));
+  const ta = h('textarea', { rows: 6, placeholder: 'Paste a transcript or lyrics here. Each line becomes one or more captions, timed by word count, starting at the playhead.' });
+
+  el.append(
+    h('div', { class: 'panel-title' }, 'Text & captions'),
+    ...TEXT_PRESETS.map((p) =>
+      h('button', { class: 'text-style-btn', onclick: () => addTextAtPlayhead(p.label === 'BOLD SOCIAL' ? 'Tap to edit this caption' : p.label, p.style, p.anim) },
+        h('span', { style: p.css.split(';').reduce((o, d) => { const [k, v] = d.split(':'); if (k && v) o[k.trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v.trim(); return o; }, {}) }, p.label))
+    ),
+    h('div', { class: 'panel-sub' }, 'Transcript → captions'),
+    h('div', { class: 'stack' },
+      ta,
+      h('div', { class: 'row' }, presetSel, wordsSel),
+      h('button', {
+        class: 'btn accent full',
+        onclick: () => {
+          if (!ta.value.trim()) return toast('Paste some text first');
+          const p = TEXT_PRESETS[+presetSel.value];
+          const items = transcriptToCaptions(ta.value, store.time, { maxWords: +wordsSel.value });
+          const n = addCaptions(items, p.style, p.anim);
+          toast(`Added ${n} captions`, 'ok');
+        },
+      }, 'Generate timed captions')
+    ),
+    h('div', { class: 'panel-sub' }, 'Subtitle files'),
+    h('div', { class: 'row' },
+      h('button', {
+        class: 'btn', style: { flex: 1 },
+        onclick: async () => {
+          const [f] = await pickFiles('.srt,.vtt,text/vtt', false);
+          if (!f) return;
+          const items = parseSubtitles(await f.text());
+          if (!items.length) return toast('No captions found in that file', 'error');
+          const p = TEXT_PRESETS[+presetSel.value];
+          toast(`Imported ${addCaptions(items, p.style, 'none')} captions`, 'ok');
+        },
+      }, '⇪ Import SRT/VTT'),
+      h('button', {
+        class: 'btn', style: { flex: 1 },
+        onclick: () => {
+          const srt = exportSRT();
+          if (!srt) return toast('No captions to export');
+          download(new Blob([srt], { type: 'text/plain' }), `${store.project.name || 'captions'}.srt`);
+        },
+      }, '⇩ Export SRT')
+    ),
+    h('div', { class: 'note', style: { marginTop: '10px' } },
+      'Tip: select a caption to change font, colors, outline, box, position and animation (', Object.values(TEXT_ANIMS).slice(1).join(', '), ').')
+  );
+}
