@@ -172,3 +172,81 @@ function clipEl(c) {
   el.append(h('div', { class: 'handle l', title: 'Trim start' }), h('div', { class: 'handle r', title: 'Trim end' }));
   return el;
 }
+
+function waveCanvas(c, media, w, hgt) {
+  const cw = Math.min(Math.ceil(w), 4000);
+  const cv = h('canvas', { class: 'wave', width: cw, height: hgt, style: { width: `${w}px` } });
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = 'rgba(61, 220, 151, 0.85)';
+  const pps = media.peaksPerSec;
+  const span = c.duration * (c.speed || 1);
+  for (let x = 0; x < cw; x++) {
+    const t = c.in + (x / cw) * span;
+    const v = media.peaks[Math.min(media.peaks.length - 1, Math.floor(t * pps))] || 0;
+    const bh = Math.max(1, v * (hgt - 6) * (c.muted ? 0.2 : Math.min(1.5, c.volume ?? 1)));
+    ctx.fillRect(x, (hgt - bh) / 2, 1, bh);
+  }
+  return cv;
+}
+
+function updateWidth() {
+  if (!scroll) return;
+  const d = Math.max(projectDuration() + 30, scroll.clientWidth / store.zoom);
+  content.style.width = `${d * store.zoom}px`;
+  drawRuler();
+}
+
+function drawRuler() {
+  const w = scroll.clientWidth;
+  const dpr = window.devicePixelRatio || 1;
+  ruler.width = w * dpr;
+  ruler.height = 26 * dpr;
+  ruler.style.width = `${w}px`;
+  const ctx = ruler.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, 26);
+  const z = store.zoom;
+  const t0 = scroll.scrollLeft / z;
+  const steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+  const major = steps.find((s) => s * z >= 80) || 600;
+  const minor = major / 5;
+  ctx.font = '10px Inter, Segoe UI, sans-serif';
+  ctx.textBaseline = 'top';
+  const start = Math.floor(t0 / minor) * minor;
+  for (let t = start; (t - t0) * z < w; t += minor) {
+    const x = Math.round((t - t0) * z) + 0.5;
+    const isMajor = Math.abs(t / major - Math.round(t / major)) < 1e-6;
+    ctx.strokeStyle = isMajor ? '#59607a' : '#353a4a';
+    ctx.beginPath();
+    ctx.moveTo(x, isMajor ? 12 : 19);
+    ctx.lineTo(x, 26);
+    ctx.stroke();
+    if (isMajor) {
+      ctx.fillStyle = '#8a90a2';
+      const m = Math.floor(t / 60);
+      const s = t % 60;
+      ctx.fillText(major < 1 ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${m}:${String(Math.round(s)).padStart(2, '0')}`, x + 3, 2);
+    }
+  }
+}
+
+function onTime() {
+  if (!scroll) return;
+  const x = store.time * store.zoom;
+  playhead.style.left = `${x}px`;
+  if (store.playing) {
+    if (x > scroll.scrollLeft + scroll.clientWidth - 40 || x < scroll.scrollLeft) scroll.scrollLeft = x - 40;
+  }
+}
+
+function setZoom(z, anchorClientX) {
+  z = clamp(z, 4, 400);
+  const rect = scroll.getBoundingClientRect();
+  const ax = anchorClientX ?? rect.left + (store.time * store.zoom - scroll.scrollLeft);
+  const tAt = (scroll.scrollLeft + ax - rect.left) / store.zoom;
+  store.zoom = z;
+  zoomInput.value = z;
+  renderAll();
+  scroll.scrollLeft = tAt * z - (ax - rect.left);
+  drawRuler();
+}
