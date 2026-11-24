@@ -262,3 +262,99 @@ export class Renderer {
     return ready;
   }
 }
+
+// ---------- text / captions ----------
+function wrapText(ctx, text, maxW) {
+  const lines = [];
+  for (const para of String(text).split('\n')) {
+    const words = para.split(/\s+/).filter(Boolean);
+    let line = [];
+    for (const w of words) {
+      const test = [...line, w].join(' ');
+      if (line.length && ctx.measureText(test).width > maxW) { lines.push(line); line = [w]; }
+      else line.push(w);
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+export function drawText(ctx, c, t, W, H) {
+  const s = { ...DEFAULT_TEXT_STYLE, ...c.style };
+  const k = Math.min(W, H) / 1080;
+  const local = t - c.start;
+  const d = c.duration;
+  const text = s.uppercase ? String(c.text).toUpperCase() : String(c.text);
+  const size = s.size * k;
+  ctx.save();
+  ctx.font = `${s.italic ? 'italic ' : ''}${s.bold ? 800 : 500} ${size}px ${s.font}`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const lines = wrapText(ctx, text, W * s.maxWidth);
+  const lh = size * 1.28;
+  const blockH = lines.length * lh;
+  let cx = W / 2;
+  let cy;
+  if (s.pos === 'top') cy = H * 0.1 + blockH / 2;
+  else if (s.pos === 'center') cy = H / 2;
+  else if (s.pos === 'custom') { cx = s.x * W; cy = s.y * H; }
+  else cy = H * 0.9 - blockH / 2;
+
+  const totalWords = lines.reduce((n, l) => n + l.length, 0);
+  const totalChars = lines.reduce((n, l) => n + l.join(' ').length + 1, 0);
+  const inD = Math.min(0.35, d / 3);
+  const pin = clamp(local / inD, 0, 1);
+  const pout = clamp((d - local) / inD, 0, 1);
+  let alpha = 1, scale = 1, dy = 0, charLimit = Infinity, wordIdx = -1, wordLimit = Infinity;
+  switch (c.anim) {
+    case 'fade': alpha = Math.min(pin, pout); break;
+    case 'pop': scale = Math.max(0.01, easeOutBack(pin)); alpha = Math.min(1, pin * 2) * pout; break;
+    case 'slide': dy = (1 - easeOut(pin)) * 50 * k; alpha = Math.min(pin, pout); break;
+    case 'typewriter': charLimit = Math.floor(totalChars * clamp(local / (d * 0.7), 0, 1)); alpha = pout; break;
+    case 'highlight': wordIdx = Math.floor(totalWords * clamp(local / d, 0, 0.9999)); break;
+    case 'wordpop': wordLimit = Math.floor(totalWords * clamp(local / (d * 0.8), 0, 1)) + 1; alpha = pout; break;
+  }
+  if (alpha <= 0.001) { ctx.restore(); return; }
+  ctx.globalAlpha = alpha;
+  ctx.translate(cx, cy + dy);
+  ctx.scale(scale, scale);
+  const space = ctx.measureText(' ').width;
+  let wi = 0;
+  let ci = 0;
+  lines.forEach((words, li) => {
+    const y = -blockH / 2 + lh * (li + 0.5);
+    const lw = ctx.measureText(words.join(' ')).width;
+    if (s.bgOpacity > 0 && words.length) {
+      ctx.save();
+      ctx.globalAlpha = alpha * s.bgOpacity;
+      ctx.fillStyle = s.bg;
+      ctx.beginPath();
+      ctx.roundRect(-lw / 2 - size * 0.3, y - lh / 2, lw + size * 0.6, lh, size * 0.18);
+      ctx.fill();
+      ctx.restore();
+    }
+    let x = -lw / 2;
+    for (const w of words) {
+      let word = w;
+      if (ci >= charLimit) word = '';
+      else if (ci + w.length > charLimit) word = w.slice(0, charLimit - ci);
+      ci += w.length + 1;
+      if (word && wi < wordLimit) {
+        if (s.shadow) { ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 12 * k; ctx.shadowOffsetY = 3 * k; }
+        if (s.strokeWidth > 0) {
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = s.strokeWidth * k * 2;
+          ctx.strokeStyle = s.stroke;
+          ctx.strokeText(word, x, y);
+          ctx.shadowColor = 'transparent';
+        }
+        ctx.fillStyle = wi === wordIdx ? s.highlight : s.color;
+        ctx.fillText(word, x, y);
+        ctx.shadowColor = 'transparent';
+      }
+      x += ctx.measureText(w).width + space;
+      wi++;
+    }
+  });
+  ctx.restore();
+}
