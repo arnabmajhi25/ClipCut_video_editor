@@ -250,3 +250,101 @@ function setZoom(z, anchorClientX) {
   scroll.scrollLeft = tAt * z - (ax - rect.left);
   drawRuler();
 }
+
+// ---------- interaction ----------
+const xToTime = (clientX) => (clientX - content.getBoundingClientRect().left) / store.zoom;
+
+function dragLoop(onMove, onUp) {
+  const move = (ev) => onMove(ev);
+  const up = (ev) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    onUp?.(ev);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
+function onPointerDown(e) {
+  if (e.button !== 0) return;
+  const node = e.target.closest('.clip');
+  if (node) return startClipDrag(e, node);
+  emit('scrub');
+  if (!e.target.closest('.tl-ruler')) select(null);
+  const move = (ev) => setTime(Math.max(0, xToTime(ev.clientX)));
+  move(e);
+  dragLoop(move);
+}
+
+function snapPoints(excludeId) {
+  const pts = [0, store.time];
+  for (const c of store.project.clips) if (c.id !== excludeId) pts.push(c.start, clipEnd(c));
+  return pts;
+}
+function snap(t, pts) {
+  if (!store.snap) return { hit: false, t };
+  const thr = 8 / store.zoom;
+  let best = null;
+  for (const p of pts) { const d = Math.abs(p - t); if (d < thr && (!best || d < best.d)) best = { t: p, d }; }
+  return best ? { hit: true, t: best.t, d: best.d } : { hit: false, t };
+}
+function showSnap(t) { snapLine.style.display = 'block'; snapLine.style.left = `${t * store.zoom}px`; }
+function hideSnap() { snapLine.style.display = 'none'; }
+
+function startClipDrag(e, node) {
+  const c = getClip(node.dataset.id);
+  if (!c) return;
+  select(c.id);
+  const cls = e.target.classList;
+  const mode = cls.contains('l') ? 'l' : cls.contains('r') ? 'r' : 'move';
+  const x0 = e.clientX;
+  const o = { start: c.start, dur: c.duration, in: c.in || 0 };
+  const media = c.type === 'media' ? store.media.get(c.mediaId) : null;
+  const timed = media && (media.type === 'video' || media.type === 'audio');
+  const speed = c.speed || 1;
+  const kind = clipKind(c);
+  const pts = snapPoints(c.id);
+  let moved = false;
+  checkpoint();
+
+  dragLoop((ev) => {
+    const dx = (ev.clientX - x0) / store.zoom;
+    if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+    moved = true;
+    draggingId = c.id;
+    if (mode === 'move') {
+      let ns = Math.max(0, o.start + dx);
+      const s1 = snap(ns, pts);
+      const s2 = snap(ns + o.dur, pts);
+      if (s1.hit && (!s2.hit || s1.d <= s2.d)) { ns = s1.t; showSnap(s1.t); }
+      else if (s2.hit) { ns = s2.t - o.dur; showSnap(s2.t); }
+      else hideSnap();
+      c.start = Math.max(0, ns);
+      const tEl = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.tl-track');
+      if (tEl && tEl.dataset.kind === kind) c.track = tEl.dataset.track;
+    } else if (mode === 'l') {
+      const end = o.start + o.dur;
+      let ns = o.start + dx;
+      const s = snap(ns, pts);
+      if (s.hit) { ns = s.t; showSnap(ns); } else hideSnap();
+      if (timed) ns = Math.max(ns, o.start - o.in / speed);
+      ns = clamp(ns, 0, end - 0.1);
+      c.start = ns;
+      c.duration = end - ns;
+      if (timed) c.in = o.in + (ns - o.start) * speed;
+    } else {
+      let ne = o.start + o.dur + dx;
+      const s = snap(ne, pts);
+      if (s.hit) { ne = s.t; showSnap(ne); } else hideSnap();
+      ne = Math.max(ne, c.start + 0.1);
+      if (timed) ne = Math.min(ne, c.start + (media.duration - c.in) / speed);
+      c.duration = ne - c.start;
+    }
+    softChange();
+  }, () => {
+    draggingId = null;
+    hideSnap();
+    commit();
+    emit('change');
+  });
+}
