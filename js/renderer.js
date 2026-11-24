@@ -135,4 +135,130 @@ export class Renderer {
     }
     for (const id of [...this.players.keys()]) if (!live.has(id)) this.destroyPlayer(id);
   }
+
+  /** True when every video needed for time t has a decoded frame at the right position. */
+  framesReady(t) {
+    const clips = store.project.clips;
+    for (const c of clips) {
+      if (c.type !== 'media' || (c.track !== 'V1' && c.track !== 'V2')) continue;
+      const m = store.media.get(c.mediaId);
+      if (!m || m.type !== 'video') continue;
+      const next = nextAdjacent(c, clips);
+      const end = clipEnd(c) + (next ? transitionDuration(next) : 0);
+      if (t < c.start || t >= end) continue;
+      const p = this.players.get(c.id);
+      if (!p || p.el.readyState < 2 || p.el.seeking) return false;
+    }
+    return true;
+  }
+
+  /** Draw frame at time t. Returns false if some video frame wasn't ready yet. */
+  render(t) {
+    const { ctx, canvas } = this;
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    ctx.fillStyle = store.project.background || '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    const clips = store.project.clips;
+    let ready = true;
+    for (const trackId of ['V1', 'V2']) {
+      const list = clips
+        .filter((c) => c.track === trackId && c.type !== 'text' && t >= c.start && t < clipEnd(c))
+        .sort((a, b) => a.start - b.start);
+      for (const c of list) {
+        const td = transitionDuration(c);
+        if (td > 0 && t < c.start + td) {
+          const prev = prevAdjacent(c, clips);
+          for (const L of [this.layerA, this.layerB]) { L.ctx.setTransform(1, 0, 0, 1, 0, 0); L.ctx.clearRect(0, 0, W, H); }
+          if (prev) ready = this.drawClip(this.layerA.ctx, prev, t, W, H) && ready;
+          ready = this.drawClip(this.layerB.ctx, c, t, W, H) && ready;
+          compositeTransition(ctx, prev ? this.layerA : null, this.layerB, c.transition.type, (t - c.start) / td, W, H);
+        } else {
+          ready = this.drawClip(ctx, c, t, W, H) && ready;
+        }
+      }
+    }
+    for (const c of clips) {
+      if (c.type === 'text' && t >= c.start && t < clipEnd(c)) drawText(ctx, c, t, W, H);
+    }
+    return ready;
+  }
+
+  drawClip(ctx, c, t, W, H) {
+    let src = null;
+    let sw = W;
+    let sh = H;
+    let ready = true;
+    if (c.type === 'media') {
+      const m = store.media.get(c.mediaId);
+      if (!m || m.type === 'audio') return true;
+      if (m.type === 'image') {
+        if (!m.img) return true;
+        src = m.img; sw = m.width; sh = m.height;
+      } else {
+        const p = this.players.get(c.id);
+        if (!p || p.el.readyState < 2) return false;
+        src = p.el;
+        sw = p.el.videoWidth || m.width;
+        sh = p.el.videoHeight || m.height;
+        if (p.el.seeking) ready = false;
+      }
+    }
+    const local = clamp(t - c.start, 0, c.duration);
+    const prog = c.duration > 0 ? local / c.duration : 0;
+    const tr = { ...DEFAULT_TRANSFORM, ...c.transform };
+    let alpha = tr.opacity;
+    if (c.fadeIn > 0 && local < c.fadeIn) alpha *= local / c.fadeIn;
+    if (c.fadeOut > 0 && local > c.duration - c.fadeOut) alpha *= Math.max(0, (c.duration - local) / c.fadeOut);
+    if (alpha <= 0.001) return ready;
+
+    let { x, y, scale, rotation } = tr;
+    switch (c.motion) {
+      case 'zoom-in': scale *= 1 + 0.25 * prog; break;
+      case 'zoom-out': scale *= 1.25 - 0.25 * prog; break;
+      case 'pan-left': scale *= 1.2; x += 0.08 - 0.16 * prog; break;
+      case 'pan-right': scale *= 1.2; x += -0.08 + 0.16 * prog; break;
+      case 'pulse': scale *= 1 + 0.035 * Math.sin(local * Math.PI * 2.4); break;
+      case 'shake': scale *= 1.05; x += Math.sin(local * 47) * 0.006 + Math.sin(local * 23) * 0.004; y += Math.cos(local * 39) * 0.006; break;
+      case 'spin': rotation += local * 25; break;
+    }
+
+    let dw = W;
+    let dh = H;
+    if (src) {
+      const fit = tr.fit || 'contain';
+      if (fit !== 'stretch') {
+        const r = fit === 'cover' ? Math.max(W / sw, H / sh) : Math.min(W / sw, H / sh);
+        dw = sw * r;
+        dh = sh * r;
+      }
+    }
+    const e = effectiveFx(c);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(W / 2 + x * W, H / 2 + y * H);
+    if (rotation) ctx.rotate((rotation * Math.PI) / 180);
+    ctx.scale(scale * (tr.flipH ? -1 : 1), scale);
+    ctx.filter = filterString(e, Math.min(W, H) / 1080);
+    if (src) ctx.drawImage(src, -dw / 2, -dh / 2, dw, dh);
+    else { ctx.fillStyle = c.color || '#000'; ctx.fillRect(-dw / 2, -dh / 2, dw, dh); }
+    ctx.filter = 'none';
+    if (e.tint) { ctx.fillStyle = e.tint; ctx.fillRect(-dw / 2, -dh / 2, dw, dh); }
+    if (e.vignette > 0) {
+      const r = Math.max(dw, dh);
+      const g = ctx.createRadialGradient(0, 0, r * 0.25, 0, 0, r * 0.75);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(1, `rgba(0,0,0,${Math.min(1, e.vignette / 100)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(-dw / 2, -dh / 2, dw, dh);
+    }
+    ctx.restore();
+    return ready;
+  }
 }
