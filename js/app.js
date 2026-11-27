@@ -94,3 +94,20 @@ function updateTimes() {
   $('#curTime').textContent = formatTime(store.time);
   $('#totTime').textContent = formatTime(projectDuration());
 }
+
+// ---------- autosave ----------
+let saveTimer;
+async function saveNow() {
+  clearTimeout(saveTimer);
+  try {
+    await db.setKV('project', JSON.stringify(store.project));
+    $('#saveStatus').textContent = 'All changes saved';
+  } catch (e) {
+    $('#saveStatus').textContent = 'Not saved (storage full?)';
+  }
+}
+function scheduleSave() {
+  $('#saveStatus').textContent = 'Saving…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 700);
+}
