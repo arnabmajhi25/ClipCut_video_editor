@@ -172,3 +172,34 @@ function syncTopbar() {
   $('#redoBtn').disabled = !canRedo();
   $('#stageEmpty').classList.toggle('hidden', store.project.clips.length > 0);
 }
+
+// ---------- file import (input + drop on stage/window) ----------
+async function importAndPlace(files) {
+  const list = await importFiles(files, (e) => toast(e.message, 'error'));
+  for (const m of list) addMediaToTimeline(m);
+  if (list.length) toast(`Imported ${list.length} file(s)`, 'ok');
+}
+
+function initFileDrop() {
+  $('#fileInput').addEventListener('change', async (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    const list = await importFiles(files, (err) => toast(err.message, 'error'));
+    if (list.length) toast(`Imported ${list.length} file(s) — drag them onto the timeline or click +`, 'ok');
+  });
+  const stage = $('#stage');
+  stage.addEventListener('dragover', (e) => {
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();
+    stage.classList.add('dragover');
+  });
+  stage.addEventListener('dragleave', () => stage.classList.remove('dragover'));
+  stage.addEventListener('drop', (e) => {
+    e.preventDefault();
+    stage.classList.remove('dragover');
+    importAndPlace([...e.dataTransfer.files]);
+  });
+  // Prevent the browser from navigating away when files are dropped elsewhere.
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => e.preventDefault());
+}
