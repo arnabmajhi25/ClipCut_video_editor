@@ -79,3 +79,90 @@ export async function handleSpotifyRedirect() {
     localStorage.removeItem(LS_VERIFIER);
   }
 }
+
+async function accessToken() {
+  let t = getToken();
+  if (!t) return null;
+  if (Date.now() > t.expires_at) {
+    if (!t.refresh_token) { setToken(null); return null; }
+    try { t = await tokenRequest({ grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: getClientId() }); }
+    catch { setToken(null); return null; }
+  }
+  return t.access_token;
+}
+
+async function api(path) {
+  const tok = await accessToken();
+  if (!tok) { renderPanel(); throw new Error('Please connect Spotify again'); }
+  const res = await fetch(API + path, { headers: { Authorization: `Bearer ${tok}` } });
+  if (res.status === 401) { setToken(null); renderPanel(); throw new Error('Spotify session expired — reconnect'); }
+  if (res.status === 429) throw new Error('Spotify rate limit hit — wait a moment');
+  if (!res.ok) throw new Error(`Spotify error ${res.status}`);
+  return res.json();
+}
+
+// ---------- adding audio ----------
+async function addSpotifyPreview(track, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const res = await fetch(track.preview_url);
+    if (!res.ok) throw new Error('Preview download failed');
+    const blob = await res.blob();
+    const media = await importBlob(new Blob([blob], { type: 'audio/mpeg' }), `${track.name} – ${artists(track)} (preview).mp3`, { source: sourceOf(track) });
+    addMediaToTimeline(media, 'A1', store.time);
+    toast('30s preview added to the Music track', 'ok');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Add';
+  }
+}
+
+async function attachLocalFile(track) {
+  const [f] = await pickFiles('audio/*', false);
+  if (!f) return;
+  try {
+    const media = await importBlob(f, `${track.name} – ${artists(track)}`, { source: sourceOf(track) });
+    addMediaToTimeline(media, 'A1', store.time);
+    toast('Song added to the Music track', 'ok');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+const artists = (t) => t.artists.map((a) => a.name).join(', ');
+const sourceOf = (t) => ({ kind: 'spotify', id: t.id, title: t.name, artist: artists(t), url: t.external_urls?.spotify });
+
+function togglePreview(url, btn) {
+  if (previewAudio && previewAudio.src === url && !previewAudio.paused) {
+    previewAudio.pause();
+    btn.textContent = '▶';
+    return;
+  }
+  previewAudio?.pause();
+  panel.querySelectorAll('.pv-btn').forEach((b) => { b.textContent = '▶'; });
+  previewAudio = new Audio(url);
+  previewAudio.play().catch(() => toast('Could not play preview', 'error'));
+  previewAudio.onended = () => { btn.textContent = '▶'; };
+  btn.textContent = '❚❚';
+}
+
+function trackRow(t) {
+  const img = t.album?.images?.at(-1)?.url;
+  const dur = `${Math.floor(t.duration_ms / 60000)}:${String(Math.floor(t.duration_ms / 1000) % 60).padStart(2, '0')}`;
+  const btns = h('div', { class: 'btns' });
+  if (t.preview_url) {
+    const pv = h('button', { class: 'icon-btn pv-btn', title: 'Listen to preview' }, '▶');
+    pv.onclick = () => togglePreview(t.preview_url, pv);
+    const add = h('button', { class: 'icon-btn btn accent', title: 'Add 30-second preview to timeline' }, '+ Add');
+    add.onclick = () => addSpotifyPreview(t, add);
+    btns.append(pv, add);
+  } else {
+    btns.append(h('button', { class: 'icon-btn', title: 'Spotify provides no audio for this track — attach your own copy of the song', onclick: () => attachLocalFile(t) }, '📎 File'));
+  }
+  if (t.external_urls?.spotify) btns.append(h('a', { class: 'icon-btn', href: t.external_urls.spotify, target: '_blank', rel: 'noopener', title: 'Open in Spotify', style: { textDecoration: 'none' } }, '↗'));
+  return h('div', { class: 'track-result' },
+    img ? h('img', { src: img, alt: '' }) : h('div', { class: 'thumb' }),
+    h('div', { style: { minWidth: 0 } }, h('div', { class: 't', title: t.name }, t.name), h('div', { class: 'a' }, `${artists(t)} · ${dur}`)),
+    btns);
+}
