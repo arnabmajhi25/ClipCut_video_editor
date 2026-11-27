@@ -1,0 +1,302 @@
+// Entry point: wires playback, top bar, shortcuts, autosave and all panels together.
+import {
+  store, on, emit, mutate, undo, redo, canUndo, canRedo, setTime, setProject, newProject,
+  projectDuration, formatTime, clamp, select, deleteClip, duplicateClip, ASPECTS, getClip,
+} from './state.js';
+import { Renderer, ensureAudio, audio } from './renderer.js';
+import { initTimeline, addMediaToTimeline, addTextAtPlayhead, splitSelected, zoomToFit } from './timeline.js';
+import { initInspector } from './inspector.js';
+import { initPanels } from './panels.js';
+import { initMusicPanel, handleSpotifyRedirect, renderMusicPanel } from './spotify.js';
+import { importFiles, restoreMedia } from './media.js';
+import { openExportDialog } from './export.js';
+import { $, h, toast, openModal, closeModal, confirmDialog } from './ui.js';
+import * as db from './db.js';
+
+const canvas = $('#preview');
+const renderer = new Renderer(canvas);
+let previewScale = +(localStorage.getItem('cf_preview_scale') || 0.5);
+let readyRetries = 0;
+
+function applyPreviewSize() {
+  const { width, height } = store.project;
+  const s = store.exporting ? 1 : previewScale;
+  renderer.resize(Math.round(width * s), Math.round(height * s));
+}
+
+// ---------- playback ----------
+let clockStart = 0;
+let clockT0 = 0;
+const player = {
+  onEnd: null,
+  onPause: null,
+  play() {
+    if (store.playing) return;
+    ensureAudio();
+    const end = projectDuration();
+    if (end <= 0) return;
+    if (store.time >= end - 0.02) setTime(0);
+    store.playing = true;
+    clockStart = performance.now();
+    clockT0 = store.time;
+    renderer.sync(store.time, true);
+    updatePlayBtn();
+  },
+  pause() {
+    if (!store.playing) return;
+    store.playing = false;
+    renderer.pauseAll();
+    renderer.dirty = true;
+    updatePlayBtn();
+    this.onPause?.();
+  },
+  toggle() { store.playing ? this.pause() : this.play(); },
+  seek(t) {
+    setTime(clamp(t, 0, Math.max(0, projectDuration())));
+    clockStart = performance.now();
+    clockT0 = store.time;
+    renderer.dirty = true;
+  },
+};
+
+function loop(now) {
+  if (store.playing) {
+    const end = projectDuration();
+    const t = clockT0 + (now - clockStart) / 1000;
+    if (t >= end) {
+      setTime(end);
+      renderer.sync(end, false);
+      renderer.render(Math.max(0, end - 0.001));
+      player.pause();
+      player.onEnd?.();
+    } else {
+      setTime(t);
+      renderer.sync(t, true);
+      renderer.render(t);
+    }
+  } else if (renderer.dirty) {
+    renderer.sync(store.time, false);
+    // Avoid black flashes while a seek is in flight: wait (briefly) for decoded frames.
+    if (renderer.framesReady(store.time) || ++readyRetries > 45) {
+      renderer.render(store.time);
+      renderer.dirty = false;
+      readyRetries = 0;
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+function updatePlayBtn() {
+  $('#playBtn').textContent = store.playing ? '❚❚' : '▶';
+}
+
+function updateTimes() {
+  $('#curTime').textContent = formatTime(store.time);
+  $('#totTime').textContent = formatTime(projectDuration());
+}
+
+// ---------- autosave ----------
+let saveTimer;
+async function saveNow() {
+  clearTimeout(saveTimer);
+  try {
+    await db.setKV('project', JSON.stringify(store.project));
+    $('#saveStatus').textContent = 'All changes saved';
+  } catch (e) {
+    $('#saveStatus').textContent = 'Not saved (storage full?)';
+  }
+}
+function scheduleSave() {
+  $('#saveStatus').textContent = 'Saving…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 700);
+}
+
+// ---------- top bar ----------
+function initTopbar() {
+  const nameIn = $('#projectName');
+  nameIn.addEventListener('change', () => mutate((p) => { p.name = nameIn.value.trim() || 'Untitled project'; }));
+  $('#undoBtn').onclick = undo;
+  $('#redoBtn').onclick = redo;
+
+  const aspect = $('#aspectSelect');
+  aspect.addEventListener('change', () => {
+    const [w, hgt] = ASPECTS[aspect.value];
+    mutate((p) => { p.aspect = aspect.value; p.width = w; p.height = hgt; });
+  });
+
+  const pq = $('#previewQuality');
+  pq.value = String(previewScale);
+  pq.addEventListener('change', () => {
+    previewScale = +pq.value;
+    localStorage.setItem('cf_preview_scale', previewScale);
+    applyPreviewSize();
+  });
+
+  $('#exportBtn').onclick = () => openExportDialog({ renderer, player, applyPreviewSize });
+  $('#shortcutsBtn').onclick = showShortcuts;
+  $('#newProjectBtn').onclick = async () => {
+    if (!(await confirmDialog('Start a new project?', 'This clears the timeline and the media library. Make sure you have exported anything you need.', 'Start fresh'))) return;
+    player.pause();
+    for (const m of store.media.values()) URL.revokeObjectURL(m.url);
+    store.media.clear();
+    await db.clearMedia().catch(() => {});
+    setProject(newProject());
+    emit('media');
+    setTime(0);
+  };
+
+  // transport
+  $('#playBtn').onclick = () => player.toggle();
+  $('#toStartBtn').onclick = () => player.seek(0);
+  $('#toEndBtn').onclick = () => player.seek(projectDuration());
+  $('#prevFrameBtn').onclick = () => stepFrames(-1);
+  $('#nextFrameBtn').onclick = () => stepFrames(1);
+  $('#masterVol').addEventListener('input', (e) => { ensureAudio(); audio.master.gain.value = +e.target.value; });
+  $('#fullscreenBtn').onclick = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else $('#stage').requestFullscreen().catch(() => {});
+  };
+  canvas.addEventListener('click', () => player.toggle());
+}
+
+function stepFrames(n) {
+  player.pause();
+  player.seek(store.time + n / (store.project.fps || 30));
+}
+
+function syncTopbar() {
+  $('#projectName').value = store.project.name;
+  $('#aspectSelect').value = store.project.aspect;
+  $('#undoBtn').disabled = !canUndo();
+  $('#redoBtn').disabled = !canRedo();
+  $('#stageEmpty').classList.toggle('hidden', store.project.clips.length > 0);
+}
+
+// ---------- file import (input + drop on stage/window) ----------
+async function importAndPlace(files) {
+  const list = await importFiles(files, (e) => toast(e.message, 'error'));
+  for (const m of list) addMediaToTimeline(m);
+  if (list.length) toast(`Imported ${list.length} file(s)`, 'ok');
+}
+
+function initFileDrop() {
+  $('#fileInput').addEventListener('change', async (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    const list = await importFiles(files, (err) => toast(err.message, 'error'));
+    if (list.length) toast(`Imported ${list.length} file(s) — drag them onto the timeline or click +`, 'ok');
+  });
+  const stage = $('#stage');
+  stage.addEventListener('dragover', (e) => {
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();
+    stage.classList.add('dragover');
+  });
+  stage.addEventListener('dragleave', () => stage.classList.remove('dragover'));
+  stage.addEventListener('drop', (e) => {
+    e.preventDefault();
+    stage.classList.remove('dragover');
+    importAndPlace([...e.dataTransfer.files]);
+  });
+  // Prevent the browser from navigating away when files are dropped elsewhere.
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => e.preventDefault());
+}
+
+// ---------- keyboard ----------
+function showShortcuts() {
+  const rows = [
+    ['Space', 'Play / pause'], ['S', 'Split clip at playhead'], ['Delete', 'Delete selected clip'],
+    ['Ctrl + D', 'Duplicate selected clip'], ['Ctrl + Z', 'Undo'], ['Ctrl + Shift + Z / Ctrl + Y', 'Redo'],
+    ['← / →', 'Step one frame'], ['Shift + ← / →', 'Jump 1 second'], ['Home / End', 'Go to start / end'],
+    ['T', 'Add caption at playhead'], ['F', 'Zoom timeline to fit'], ['Esc', 'Deselect'],
+    ['Ctrl + scroll', 'Zoom timeline'],
+  ];
+  openModal(h('div', {},
+    h('h2', {}, 'Keyboard shortcuts'),
+    h('div', { class: 'shortcuts' }, rows.flatMap(([k, d]) => [h('span', { class: 'kbd' }, k), h('span', {}, d)])),
+    h('div', { class: 'actions' }, h('button', { class: 'btn accent', onclick: closeModal }, 'Got it'))
+  ));
+}
+
+function initKeyboard() {
+  window.addEventListener('keydown', (e) => {
+    if (store.exporting) return;
+    const ae = document.activeElement;
+    const typing = ['TEXTAREA', 'SELECT'].includes(ae?.tagName) ||
+      (ae?.tagName === 'INPUT' && !['range', 'checkbox', 'color', 'button'].includes(ae.type));
+    if (typing) return;
+    if (ae?.type === 'range' && e.key.startsWith('Arrow')) return; // let sliders use arrows
+    if (!$('#modal').classList.contains('hidden')) { if (e.key === 'Escape') closeModal(); return; }
+    const ctrl = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    if (ctrl && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+    if (ctrl && k === 'y') { e.preventDefault(); redo(); return; }
+    if (ctrl && k === 'd') { e.preventDefault(); if (store.selected) duplicateClip(store.selected); return; }
+    if (ctrl) return;
+    switch (e.key) {
+      case ' ': e.preventDefault(); player.toggle(); break;
+      case 's': case 'S': splitSelected(); break;
+      case 'Delete': case 'Backspace': if (store.selected) { e.preventDefault(); deleteClip(store.selected); } break;
+      case 'ArrowLeft': e.preventDefault(); e.shiftKey ? player.seek(store.time - 1) : stepFrames(-1); break;
+      case 'ArrowRight': e.preventDefault(); e.shiftKey ? player.seek(store.time + 1) : stepFrames(1); break;
+      case 'Home': player.seek(0); break;
+      case 'End': player.seek(projectDuration()); break;
+      case 't': case 'T': addTextAtPlayhead(); break;
+      case 'f': case 'F': zoomToFit(); break;
+      case 'Escape': select(null); break;
+    }
+  });
+}
+
+// ---------- boot ----------
+async function boot() {
+  initTimeline($('#timeline'));
+  initInspector($('#inspector'));
+  initPanels();
+  initMusicPanel($('[data-panel="music"]'), { onBeforeRedirect: saveNow });
+  initTopbar();
+  initFileDrop();
+  initKeyboard();
+
+  let lastAspect = null;
+  on('change', () => {
+    renderer.dirty = true;
+    updateTimes();
+    syncTopbar();
+    scheduleSave();
+    const a = `${store.project.width}x${store.project.height}`;
+    if (a !== lastAspect) { lastAspect = a; applyPreviewSize(); }
+  });
+  on('time', () => { renderer.dirty = true; updateTimes(); });
+  on('media', () => { renderer.dirty = true; });
+  on('history', syncTopbar);
+  on('scrub', () => player.pause());
+
+  $('#saveStatus').textContent = 'Loading…';
+  try {
+    await restoreMedia();
+    const saved = await db.getKV('project');
+    if (saved) setProject(JSON.parse(saved));
+  } catch (e) {
+    console.warn('Restore failed', e);
+  }
+  // Drop clips whose media failed to restore.
+  const orphan = store.project.clips.filter((c) => c.type === 'media' && !store.media.has(c.mediaId));
+  if (orphan.length) toast(`${orphan.length} clip(s) reference missing media`, 'error');
+
+  await handleSpotifyRedirect();
+  renderMusicPanel();
+  applyPreviewSize();
+  syncTopbar();
+  updateTimes();
+  emit('change');
+  $('#saveStatus').textContent = 'All changes saved';
+  requestAnimationFrame(loop);
+}
+
+boot();
+
+// Expose for debugging in DevTools.
+window.clipforge = { store, renderer, player, getClip };
