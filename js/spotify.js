@@ -166,3 +166,95 @@ function trackRow(t) {
     h('div', { style: { minWidth: 0 } }, h('div', { class: 't', title: t.name }, t.name), h('div', { class: 'a' }, `${artists(t)} · ${dur}`)),
     btns);
 }
+
+// ---------- panel ----------
+function spotifySection() {
+  const connected = !!getToken();
+  const wrap = h('div', { class: 'stack' });
+  if (!connected) {
+    if (location.hostname === 'localhost') {
+      const fixed = location.href.replace('//localhost', '//127.0.0.1');
+      wrap.append(h('div', { class: 'note', style: { borderColor: 'var(--danger)' } },
+        'Spotify does not accept "localhost" redirect URIs. Open the editor at ', h('a', { href: fixed }, fixed), ' instead.'));
+    }
+    const cid = h('input', { placeholder: 'Spotify Client ID', value: getClientId(), spellcheck: false });
+    cid.addEventListener('change', () => localStorage.setItem(LS_CLIENT, cid.value.trim()));
+    wrap.append(
+      h('div', { class: 'note', html: `
+        <b>Connect Spotify to search songs.</b><br>
+        1. Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> (Web API).<br>
+        2. Add this Redirect URI:<br><code style="user-select:all;color:var(--text)">${redirectUri()}</code><br>
+        3. Paste the app's Client ID below and connect.` }),
+      cid,
+      h('button', { class: 'btn accent full', onclick: () => { localStorage.setItem(LS_CLIENT, cid.value.trim()); login(); } }, 'Connect Spotify')
+    );
+    return wrap;
+  }
+  const q = h('input', { placeholder: 'Search songs, artists…', type: 'search' });
+  const results = h('div', { class: 'stack', style: { gap: '2px' } });
+  const doSearch = async () => {
+    if (!q.value.trim()) return;
+    results.replaceChildren(h('div', { class: 'muted' }, 'Searching…'));
+    try {
+      const data = await api(`/search?type=track&limit=20&q=${encodeURIComponent(q.value.trim())}`);
+      const items = data.tracks?.items || [];
+      results.replaceChildren(...(items.length ? items.map(trackRow) : [h('div', { class: 'muted' }, 'No results')]));
+    } catch (e) {
+      results.replaceChildren(h('div', { class: 'muted' }, e.message));
+    }
+  };
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+  wrap.append(
+    h('div', { class: 'row' }, q, h('button', { class: 'btn accent', onclick: doSearch }, 'Search')),
+    h('div', { class: 'note' }, 'Spotify only provides ', h('b', {}, '30-second previews'), ', and none at all for many tracks or for newer developer apps. When there is no preview, use ', h('b', {}, '📎 File'), ' to attach your own copy of that song. Only use music you have the rights to.'),
+    results,
+    h('button', { class: 'btn full ghost-btn', onclick: () => { setToken(null); renderPanel(); } }, 'Disconnect Spotify')
+  );
+  return wrap;
+}
+
+function loopsSection() {
+  const grid = h('div', { class: 'tile-grid' });
+  for (const [k, l] of Object.entries(LOOPS)) {
+    const b = h('button', { class: 'tile' }, h('span', { style: { fontSize: '18px' } }, '♪'), l.label, h('small', {}, `${l.bpm} BPM · 32s`));
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        const blob = await synthLoop(k);
+        const media = await importBlob(blob, `${l.label} (generated).wav`);
+        addMediaToTimeline(media, 'A1', store.time);
+        toast(`${l.label} added`, 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+      b.disabled = false;
+    };
+    grid.append(b);
+  }
+  return grid;
+}
+
+function renderPanel() {
+  if (!panel) return;
+  panel.replaceChildren(
+    h('div', { class: 'panel-title' }, '♫ Music & audio'),
+    h('button', {
+      class: 'btn full',
+      onclick: async () => {
+        const files = await pickFiles('audio/*');
+        for (const f of files) {
+          try { addMediaToTimeline(await importBlob(f, f.name), 'A1', store.time); } catch (e) { toast(e.message, 'error'); }
+        }
+      },
+    }, '⇪ Upload your own music / voice-over'),
+    h('div', { class: 'panel-sub' }, 'Spotify'),
+    spotifySection(),
+    h('div', { class: 'panel-sub' }, 'Royalty-free loops (generated)'),
+    loopsSection()
+  );
+}
+
+export function initMusicPanel(el, { onBeforeRedirect } = {}) {
+  panel = el;
+  if (onBeforeRedirect) beforeRedirect = onBeforeRedirect;
+  renderPanel();
+}
+export { renderPanel as renderMusicPanel };
