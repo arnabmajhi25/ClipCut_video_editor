@@ -249,3 +249,54 @@ function initKeyboard() {
     }
   });
 }
+
+// ---------- boot ----------
+async function boot() {
+  initTimeline($('#timeline'));
+  initInspector($('#inspector'));
+  initPanels();
+  initMusicPanel($('[data-panel="music"]'), { onBeforeRedirect: saveNow });
+  initTopbar();
+  initFileDrop();
+  initKeyboard();
+
+  let lastAspect = null;
+  on('change', () => {
+    renderer.dirty = true;
+    updateTimes();
+    syncTopbar();
+    scheduleSave();
+    const a = `${store.project.width}x${store.project.height}`;
+    if (a !== lastAspect) { lastAspect = a; applyPreviewSize(); }
+  });
+  on('time', () => { renderer.dirty = true; updateTimes(); });
+  on('media', () => { renderer.dirty = true; });
+  on('history', syncTopbar);
+  on('scrub', () => player.pause());
+
+  $('#saveStatus').textContent = 'Loading…';
+  try {
+    await restoreMedia();
+    const saved = await db.getKV('project');
+    if (saved) setProject(JSON.parse(saved));
+  } catch (e) {
+    console.warn('Restore failed', e);
+  }
+  // Drop clips whose media failed to restore.
+  const orphan = store.project.clips.filter((c) => c.type === 'media' && !store.media.has(c.mediaId));
+  if (orphan.length) toast(`${orphan.length} clip(s) reference missing media`, 'error');
+
+  await handleSpotifyRedirect();
+  renderMusicPanel();
+  applyPreviewSize();
+  syncTopbar();
+  updateTimes();
+  emit('change');
+  $('#saveStatus').textContent = 'All changes saved';
+  requestAnimationFrame(loop);
+}
+
+boot();
+
+// Expose for debugging in DevTools.
+window.clipforge = { store, renderer, player, getClip };
