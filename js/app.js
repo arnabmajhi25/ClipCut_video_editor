@@ -111,3 +111,64 @@ function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 700);
 }
+
+// ---------- top bar ----------
+function initTopbar() {
+  const nameIn = $('#projectName');
+  nameIn.addEventListener('change', () => mutate((p) => { p.name = nameIn.value.trim() || 'Untitled project'; }));
+  $('#undoBtn').onclick = undo;
+  $('#redoBtn').onclick = redo;
+
+  const aspect = $('#aspectSelect');
+  aspect.addEventListener('change', () => {
+    const [w, hgt] = ASPECTS[aspect.value];
+    mutate((p) => { p.aspect = aspect.value; p.width = w; p.height = hgt; });
+  });
+
+  const pq = $('#previewQuality');
+  pq.value = String(previewScale);
+  pq.addEventListener('change', () => {
+    previewScale = +pq.value;
+    localStorage.setItem('cf_preview_scale', previewScale);
+    applyPreviewSize();
+  });
+
+  $('#exportBtn').onclick = () => openExportDialog({ renderer, player, applyPreviewSize });
+  $('#shortcutsBtn').onclick = showShortcuts;
+  $('#newProjectBtn').onclick = async () => {
+    if (!(await confirmDialog('Start a new project?', 'This clears the timeline and the media library. Make sure you have exported anything you need.', 'Start fresh'))) return;
+    player.pause();
+    for (const m of store.media.values()) URL.revokeObjectURL(m.url);
+    store.media.clear();
+    await db.clearMedia().catch(() => {});
+    setProject(newProject());
+    emit('media');
+    setTime(0);
+  };
+
+  // transport
+  $('#playBtn').onclick = () => player.toggle();
+  $('#toStartBtn').onclick = () => player.seek(0);
+  $('#toEndBtn').onclick = () => player.seek(projectDuration());
+  $('#prevFrameBtn').onclick = () => stepFrames(-1);
+  $('#nextFrameBtn').onclick = () => stepFrames(1);
+  $('#masterVol').addEventListener('input', (e) => { ensureAudio(); audio.master.gain.value = +e.target.value; });
+  $('#fullscreenBtn').onclick = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else $('#stage').requestFullscreen().catch(() => {});
+  };
+  canvas.addEventListener('click', () => player.toggle());
+}
+
+function stepFrames(n) {
+  player.pause();
+  player.seek(store.time + n / (store.project.fps || 30));
+}
+
+function syncTopbar() {
+  $('#projectName').value = store.project.name;
+  $('#aspectSelect').value = store.project.aspect;
+  $('#undoBtn').disabled = !canUndo();
+  $('#redoBtn').disabled = !canRedo();
+  $('#stageEmpty').classList.toggle('hidden', store.project.clips.length > 0);
+}
