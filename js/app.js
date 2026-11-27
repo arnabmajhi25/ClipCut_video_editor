@@ -203,3 +203,49 @@ function initFileDrop() {
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => e.preventDefault());
 }
+
+// ---------- keyboard ----------
+function showShortcuts() {
+  const rows = [
+    ['Space', 'Play / pause'], ['S', 'Split clip at playhead'], ['Delete', 'Delete selected clip'],
+    ['Ctrl + D', 'Duplicate selected clip'], ['Ctrl + Z', 'Undo'], ['Ctrl + Shift + Z / Ctrl + Y', 'Redo'],
+    ['← / →', 'Step one frame'], ['Shift + ← / →', 'Jump 1 second'], ['Home / End', 'Go to start / end'],
+    ['T', 'Add caption at playhead'], ['F', 'Zoom timeline to fit'], ['Esc', 'Deselect'],
+    ['Ctrl + scroll', 'Zoom timeline'],
+  ];
+  openModal(h('div', {},
+    h('h2', {}, 'Keyboard shortcuts'),
+    h('div', { class: 'shortcuts' }, rows.flatMap(([k, d]) => [h('span', { class: 'kbd' }, k), h('span', {}, d)])),
+    h('div', { class: 'actions' }, h('button', { class: 'btn accent', onclick: closeModal }, 'Got it'))
+  ));
+}
+
+function initKeyboard() {
+  window.addEventListener('keydown', (e) => {
+    if (store.exporting) return;
+    const ae = document.activeElement;
+    const typing = ['TEXTAREA', 'SELECT'].includes(ae?.tagName) ||
+      (ae?.tagName === 'INPUT' && !['range', 'checkbox', 'color', 'button'].includes(ae.type));
+    if (typing) return;
+    if (ae?.type === 'range' && e.key.startsWith('Arrow')) return; // let sliders use arrows
+    if (!$('#modal').classList.contains('hidden')) { if (e.key === 'Escape') closeModal(); return; }
+    const ctrl = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    if (ctrl && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+    if (ctrl && k === 'y') { e.preventDefault(); redo(); return; }
+    if (ctrl && k === 'd') { e.preventDefault(); if (store.selected) duplicateClip(store.selected); return; }
+    if (ctrl) return;
+    switch (e.key) {
+      case ' ': e.preventDefault(); player.toggle(); break;
+      case 's': case 'S': splitSelected(); break;
+      case 'Delete': case 'Backspace': if (store.selected) { e.preventDefault(); deleteClip(store.selected); } break;
+      case 'ArrowLeft': e.preventDefault(); e.shiftKey ? player.seek(store.time - 1) : stepFrames(-1); break;
+      case 'ArrowRight': e.preventDefault(); e.shiftKey ? player.seek(store.time + 1) : stepFrames(1); break;
+      case 'Home': player.seek(0); break;
+      case 'End': player.seek(projectDuration()); break;
+      case 't': case 'T': addTextAtPlayhead(); break;
+      case 'f': case 'F': zoomToFit(); break;
+      case 'Escape': select(null); break;
+    }
+  });
+}
